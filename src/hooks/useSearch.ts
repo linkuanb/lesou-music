@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
-import { Song, StandardPlatform } from '../types';
-import { API, CACHE_TTL, SEARCH_DEBOUNCE_MS, DEFAULT_LIMIT, PLATFORMS } from '../config';
+import { OpenverseSource, Song, StandardPlatform } from '../types';
+import { API, CACHE_TTL, SEARCH_DEBOUNCE_MS, DEFAULT_LIMIT, DEFAULT_PLATFORM, PLATFORMS } from '../config';
 import { requestCache } from '../utils/cache';
 import { addSearchHistory } from '../utils/storage';
 
@@ -48,7 +48,7 @@ async function searchStandard(kw: string, plat: string, pg: number, signal: Abor
     name: item.name || item.songname || '',
     artist: item.artist || item.singer || '',
     album: item.album || '',
-    pic: item.pic,
+    pic: item.pic == null ? '' : String(item.pic),
     source: plat as StandardPlatform,
     sourceType: 'standard' as const,
   }));
@@ -86,14 +86,33 @@ async function searchArchive(kw: string, pg: number, signal: AbortSignal): Promi
   }));
 }
 
-async function searchOpenverse(kw: string, pg: number, signal: AbortSignal): Promise<Song[]> {
-  const url = `${API.OPENVERSE}?action=search&keyword=${encodeURIComponent(kw)}&page=${pg}&limit=${DEFAULT_LIMIT}`;
+const OPENVERSE_CATALOG_BY_PLATFORM: Partial<Record<OpenverseSource, 'jamendo' | 'freesound'>> = {
+  jm: 'jamendo',
+  fs: 'freesound',
+};
+
+function openversePlatform(catalogSource: unknown, requestedPlatform: OpenverseSource): OpenverseSource {
+  if (requestedPlatform !== 'ov') return requestedPlatform;
+  if (catalogSource === 'jamendo') return 'jm';
+  if (catalogSource === 'freesound') return 'fs';
+  return 'ov';
+}
+
+async function searchOpenverse(
+  kw: string,
+  pg: number,
+  signal: AbortSignal,
+  requestedPlatform: OpenverseSource = 'ov',
+): Promise<Song[]> {
+  const catalogSource = OPENVERSE_CATALOG_BY_PLATFORM[requestedPlatform];
+  const sourceQuery = catalogSource ? `&source=${catalogSource}` : '';
+  const url = `${API.OPENVERSE}?action=search&keyword=${encodeURIComponent(kw)}&page=${pg}&limit=${DEFAULT_LIMIT}${sourceQuery}`;
   const data = await searchJson(url, signal);
   if (data.code !== 1 || !Array.isArray(data.data)) throw new Error('Openverse search unavailable');
   return data.data.map((item: any) => ({
     id: String(item.id), name: item.name || '', artist: item.artist || 'Openverse',
     album: item.license || 'Creative Commons', pic: item.pic, duration: item.duration,
-    source: 'ov' as const, sourceType: 'openverse' as const,
+    source: openversePlatform(item.catalogSource, requestedPlatform), sourceType: 'openverse' as const,
   }));
 }
 
@@ -108,6 +127,50 @@ async function searchWikimedia(kw: string, pg: number, signal: AbortSignal): Pro
   }));
 }
 
+async function searchOpenAudio(kw: string, pg: number, signal: AbortSignal): Promise<Song[]> {
+  const url = `${API.OPENAUDIO}?action=search&keyword=${encodeURIComponent(kw)}&page=${pg}&limit=${DEFAULT_LIMIT}`;
+  const data = await searchJson(url, signal);
+  if (data.code !== 1 || !Array.isArray(data.data)) throw new Error('Open.Audio search unavailable');
+  return data.data.map((item: any) => ({
+    id: String(item.id), name: item.name || '', artist: item.artist || 'Open.Audio',
+    album: item.license || item.album || 'CC0 1.0', pic: item.pic, duration: item.duration,
+    source: 'oa' as const, sourceType: 'openaudio' as const,
+  }));
+}
+
+async function searchLoc(kw: string, pg: number, signal: AbortSignal): Promise<Song[]> {
+  const endpoint = new URL('https://www.loc.gov/collections/national-jukebox/');
+  endpoint.searchParams.set('fo', 'json');
+  endpoint.searchParams.set('at', 'results');
+  endpoint.searchParams.set('q', kw.slice(0, 100));
+  endpoint.searchParams.set('c', String(DEFAULT_LIMIT));
+  endpoint.searchParams.set('sp', String(pg));
+  endpoint.searchParams.set('dates', '1900/1922');
+  const data = await searchJson(endpoint.toString(), signal);
+  if (!Array.isArray(data.results)) throw new Error('Library of Congress search unavailable');
+  return data.results.map((item: any) => {
+    const id = String(item.id || '').match(/\/item\/(jukebox-\d+)/i)?.[1] || '';
+    const year = Number(String(item.date || '').match(/^(\d{4})/)?.[1] || 0);
+    const formats = Array.isArray(item.online_format) ? item.online_format : [];
+    const resources = Array.isArray(item.resources) ? item.resources : [];
+    const audioUrl = String(resources.map((resource: any) => resource?.media).find(Boolean) || '');
+    const images = Array.isArray(item.image_url) ? item.image_url : [];
+    const primary = Array.isArray(item.contributor_primary) ? item.contributor_primary : [];
+    const contributors = Array.isArray(item.contributor) ? item.contributor : [];
+    let validAudio = false;
+    try {
+      const parsed = new URL(audioUrl);
+      validAudio = parsed.protocol === 'https:' && parsed.hostname === 'tile.loc.gov' && parsed.pathname.startsWith('/streaming-services/');
+    } catch {}
+    if (!id || year < 1900 || year > 1922 || item.access_restricted === true || !formats.includes('audio') || !validAudio) return null;
+    return {
+      id, name: item.title || '', artist: String(primary[0] || contributors[0] || 'Library of Congress'),
+      album: `Public Domain · ${year}`, pic: String(images[0] || ''), audioUrl,
+      source: 'loc' as const, sourceType: 'loc' as const,
+    };
+  }).filter(Boolean) as Song[];
+}
+
 async function searchAggregate(kw: string, pg: number, signal: AbortSignal): Promise<SearchResponse> {
   const searches: Array<{ key: string; run: () => Promise<Song[]> }> = [
     { key: 'wy', run: () => searchStandard(kw, 'wy', pg, signal) },
@@ -117,6 +180,8 @@ async function searchAggregate(kw: string, pg: number, signal: AbortSignal): Pro
     { key: 'ia', run: () => searchArchive(kw, pg, signal) },
     { key: 'ov', run: () => searchOpenverse(kw, pg, signal) },
     { key: 'wm', run: () => searchWikimedia(kw, pg, signal) },
+    { key: 'oa', run: () => searchOpenAudio(kw, pg, signal) },
+    { key: 'loc', run: () => searchLoc(kw, pg, signal) },
   ];
   const results = await Promise.all(searches.map(async ({ key, run }) => {
     try {
@@ -140,7 +205,7 @@ export function useSearch() {
   const [results, setResults] = useState<Song[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [platform, setPlatform] = useState<string>(PLATFORMS[0].key);
+  const [platform, setPlatform] = useState<string>(DEFAULT_PLATFORM);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [sourceStatus, setSourceStatus] = useState<SourceStatusMap>({});
@@ -196,9 +261,13 @@ export function useSearch() {
       } else if (platformInfo.type === 'archive') {
         response = { songs: await searchArchive(kw, pg, signal), statuses: readyStatus(plat) };
       } else if (platformInfo.type === 'openverse') {
-        response = { songs: await searchOpenverse(kw, pg, signal), statuses: readyStatus(plat) };
+        response = { songs: await searchOpenverse(kw, pg, signal, plat as OpenverseSource), statuses: readyStatus(plat) };
       } else if (platformInfo.type === 'wikimedia') {
         response = { songs: await searchWikimedia(kw, pg, signal), statuses: readyStatus(plat) };
+      } else if (platformInfo.type === 'openaudio') {
+        response = { songs: await searchOpenAudio(kw, pg, signal), statuses: readyStatus(plat) };
+      } else if (platformInfo.type === 'loc') {
+        response = { songs: await searchLoc(kw, pg, signal), statuses: readyStatus(plat) };
       } else {
         response = { songs: await searchStandard(kw, plat, pg, signal), statuses: readyStatus(plat) };
       }

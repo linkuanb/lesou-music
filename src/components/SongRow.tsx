@@ -25,22 +25,23 @@ export const SongRow = React.memo(function SongRow({ song, index, isPlaying, onP
     setImgLoaded(false);
 
     const loadPic = async () => {
-      if (!song.pic) return;
+      const pic = typeof song.pic === 'string' ? song.pic : '';
+      if (!pic) return;
 
-      if (song.pic.startsWith('http')) {
-        setImgSrc(song.pic);
+      if (pic.startsWith('http')) {
+        setImgSrc(pic);
         return;
       }
 
       if (song.source === 'wy' || song.source === 'netease') {
-        const cacheKey = `pic_netease_${song.pic}`;
+        const cacheKey = `pic_netease_${pic}`;
         const cached = requestCache.get<string>(cacheKey);
         if (cached) {
           setImgSrc(cached);
           return;
         }
         try {
-          const res = await fetch(`${API.GD}?types=pic&source=netease&id=${song.pic}&size=300`);
+          const res = await fetch(`${API.GD}?types=pic&source=netease&id=${pic}&size=300`);
           const data = await res.json();
           if (data.url) {
             requestCache.set(cacheKey, data.url, CACHE_TTL.PIC);
@@ -136,8 +137,12 @@ export const SongRow = React.memo(function SongRow({ song, index, isPlaying, onP
         <span className={`source-badge source-badge-${song.source}`}>{
           song.source === 'wy' || song.source === 'netease' ? t('source.wy')
             : song.source === 'ia' ? t('source.archive')
-              : song.source === 'wm' ? t('source.wikimedia')
-                : song.source
+              : song.source === 'jm' ? t('source.jamendo')
+                : song.source === 'fs' ? t('source.freesound')
+                  : song.source === 'wm' ? t('source.wikimedia')
+                    : song.source === 'oa' ? t('source.openaudio')
+                      : song.source === 'loc' ? t('source.loc')
+                        : song.source
         }</span>
       </div>
     </div>

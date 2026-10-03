@@ -7,8 +7,11 @@ export const API = {
   ARCHIVE: '/api/archive',
   OPENVERSE: '/api/openverse',
   WIKIMEDIA: '/api/wikimedia',
+  OPENAUDIO: '/api/openaudio',
   AUDIO_PROXY: '/api/audio-proxy',
 } as const;
+
+export const REPOSITORY_URL = 'https://github.com/Freecode100Year/XQL-MUSIC';
 
 // Only sources that actually serve their own audio. Kuwo and QQ were dropped:
 // both still return search hits but neither can hand back a playable url.
@@ -20,7 +23,11 @@ export const PLATFORMS = [
   { key: 'cc', label: 'ccMixter', type: 'ccmixter' as const },
   { key: 'ia', label: '互联网档案馆', type: 'archive' as const },
   { key: 'ov', label: 'Openverse', type: 'openverse' as const },
+  { key: 'jm', label: 'Jamendo CC', type: 'openverse' as const },
+  { key: 'fs', label: 'Freesound CC 音频', type: 'openverse' as const },
   { key: 'wm', label: '维基共享资源', type: 'wikimedia' as const },
+  { key: 'oa', label: 'Open.Audio CC0', type: 'openaudio' as const },
+  { key: 'loc', label: '国会图书馆', type: 'loc' as const },
 ] as const;
 
 export const CACHE_TTL = {
@@ -33,6 +40,7 @@ export const CACHE_TTL = {
 export const SEARCH_DEBOUNCE_MS = 300;
 export const SEARCH_HISTORY_MAX = 10;
 export const DEFAULT_LIMIT = 60;
+export const DEFAULT_PLATFORM = 'wy';
 
 export const HOT_ARTISTS = [
   '周杰伦', '林俊杰', '陈奕迅', '邓紫棋', '薛之谦',

@@ -19,6 +19,8 @@ interface PlayerProps {
   onPrev: () => void;
   onShowLyrics: () => void;
   onShowQueue: () => void;
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
 }
 
 export function Player({
@@ -35,6 +37,8 @@ export function Player({
   onPrev,
   onShowLyrics,
   onShowQueue,
+  isFavorite,
+  onToggleFavorite,
 }: PlayerProps) {
   const { t } = useI18n();
   const [coverUrl, setCoverUrl] = useState('');
@@ -50,6 +54,7 @@ export function Player({
     }
     setCoverUrl('');
     const loadCover = async () => {
+      const pic = typeof currentSong.pic === 'string' ? currentSong.pic : '';
       const cacheKey = `pic_${currentSong.sourceType}_${currentSong.source}_${currentSong.id}`;
       const cached = requestCache.get<string>(cacheKey);
       if (cached) {
@@ -57,14 +62,14 @@ export function Player({
         return;
       }
 
-      if (currentSong.pic && currentSong.pic.startsWith('http')) {
-        setCoverUrl(currentSong.pic);
+      if (pic.startsWith('http')) {
+        setCoverUrl(pic);
         return;
       }
 
-      if (currentSong.pic && (currentSong.source === 'wy' || currentSong.source === 'netease')) {
+      if (pic && (currentSong.source === 'wy' || currentSong.source === 'netease')) {
         try {
-          const res = await fetch(`${API.GD}?types=pic&source=netease&id=${currentSong.pic}&size=300`);
+          const res = await fetch(`${API.GD}?types=pic&source=netease&id=${pic}&size=300`);
           const data = await res.json();
           if (data.url) {
             requestCache.set(cacheKey, data.url, CACHE_TTL.PIC);
@@ -187,7 +192,22 @@ export function Player({
             )}
           </div>
           <div className="player-info">
-            <span className="player-song-name">{currentSong?.name || t('player.notPlaying')}</span>
+            <div className="player-title-row">
+              <span className="player-song-name">{currentSong?.name || t('player.notPlaying')}</span>
+              {currentSong && (
+                <button
+                  type="button"
+                  className={`player-favorite-btn ${isFavorite ? 'active' : ''}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleFavorite();
+                  }}
+                  aria-pressed={isFavorite}
+                  aria-label={isFavorite ? t('favorite.remove') : t('favorite.add')}
+                  title={isFavorite ? t('favorite.remove') : t('favorite.add')}
+                >❤️</button>
+              )}
+            </div>
             <span className="player-artist">{currentSong?.artist || t('player.chooseSong')}</span>
           </div>
         </div>
